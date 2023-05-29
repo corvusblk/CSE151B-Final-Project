@@ -1,0 +1,268 @@
+---
+title: "Homework 5"
+author: |
+  | Isaac Conrique
+  | Math 189
+  | Spring 2023
+date: "Last Updated: `r format(Sys.time(), '%B, %d, %Y')`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Exploring Data
+
+```{r}
+library(dplyr)
+library(readr)
+library(ggplot2)
+data <- read_csv('\\\\wsl$\\Ubuntu\\home\\cohenrique\\classes\\cse151b\\Project\\out_bak.csv')
+```
+```{r}
+# determine the min/max x/y bounds based on +/- 4sd from the mean
+start_x.mean = mean(data$START_X)
+start_x.sd = sd(data$START_X)
+end_x.mean = mean(data$END_X)
+end_x.sd = sd(data$END_X)
+start_y.mean = mean(data$START_Y)
+start_y.sd = sd(data$START_Y)
+end_y.mean = mean(data$END_Y)
+end_y.sd = sd(data$END_Y)
+
+min.start_x = start_x.mean-4*start_x.sd
+max.start_x = start_x.mean+4*start_x.sd
+min.start_y = start_y.mean-4*start_y.sd
+max.start_y = start_y.mean+4*start_y.sd
+min.end_x = end_x.mean-4*end_x.sd
+max.end_x = end_x.mean+4*end_x.sd
+min.end_y = end_y.mean-4*end_y.sd
+max.end_y = end_y.mean+4*end_y.sd
+
+x.min = round(min(min.start_x, min.end_x),2)
+x.max = round(max(max.start_x, max.end_x),2)
+y.min = round(min(min.start_y, min.end_y),2)
+y.max = round(max(max.start_y, max.end_y),2)
+```
+
+
+```{r}
+# removing statistical outliers to roughly 4sds
+data <- raw_data %>%
+  filter(TRIP_DURATION > 45 & TRIP_DURATION < 6600) %>%
+  filter(TAXI_ID < 705) %>%
+  filter(START_X < x.max & START_X > x.min) %>%
+  filter(END_X < x.max & END_X > x.min) %>%
+  filter(START_Y < y.max & START_Y > y.min) %>%
+  filter(END_Y < y.max & END_Y > y.min)
+```
+
+```{r}
+# Select Data
+select_mask <- sample(nrow(data), floor(nrow(data) * 0.01))
+df <- data %>%
+  slice(select_mask)
+```
+
+```{r}
+df %>%
+  select(c('CALL_TYPE', 'TAXI_ID', 'TRIP_DURATION')) %>%
+  ggplot(mapping = aes(x=TAXI_ID, y=log(TRIP_DURATION), color=CALL_TYPE )) +
+  geom_point(alpha=0.2)
+```
+```{r}
+data %>%
+  filter(TRIP_DURATION > 100 & TRIP_DURATION < 400) %>%
+  ggplot(aes(x=log(TRIP_DURATION), fill=CALL_TYPE, color=CALL_TYPE)) +
+  geom_histogram(bins = 50, alpha=0.5)
+```
+
+```{r}
+data %>%
+  ggplot(aes(x=log(TRIP_DURATION), fill=CALL_TYPE, color=CALL_TYPE)) +
+  geom_histogram(bins = 39, alpha=0.5)
+```
+
+```{r}
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+```
+
+```{r}
+data %>%
+  select(c('ORIGIN_CALL', 'TRIP_DURATION')) %>%
+  ggplot(mapping = aes(x=ORIGIN_CALL, y=log(TRIP_DURATION))) +
+  geom_point(alpha=0.1)
+```
+
+```{r}
+df_origin <- read_csv('C:\\Users\\cohenrique\\Desktop\\df_origin.csv')
+```
+
+
+
+```{r}
+# bins function that determines bins based on normal distribution
+gen_norm.bins <- function (mean, sd, min, max, count){
+  norm_bins = c(min)
+  n=count
+  for (i in 1:(n-1)){
+    bin.x = qnorm(p=(i * 1/n), mean=mean, sd=sd, lower.tail=TRUE)
+    norm_bins <- append(norm_bins, bin.x)
+  }
+  norm_bins <- append(norm_bins, max)
+}
+
+```
+
+```{r}
+# Binning DURATION_MEANs from df_origin
+n=10
+col_data = df_origin$duration.mean
+bins = gen_norm.bins(mean(col_data), sd(col_data), min(col_data)-1, max(col_data), n)
+df_origin <- df_origin %>%
+  mutate(DUR_MU_BINNED=cut(col_data, breaks=bins)) %>%
+  mutate_if(is.factor, as.numeric)
+
+# Binning START_X/Y MEANS from df_origin
+# X
+n=10
+col_data = df_origin$start.x.mean
+bins = gen_norm.bins(mean(col_data), sd(col_data), min(col_data)-1, max(col_data), n)
+df_origin <- df_origin %>%
+  mutate(X.S_MU_BINNED=cut(col_data, breaks=bins)) %>%
+  mutate_if(is.factor, as.numeric)
+# Y
+col_data = df_origin$start.y.mean
+bins = gen_norm.bins(mean(col_data), sd(col_data), min(col_data)-1, max(col_data), n)
+df_origin <- df_origin %>%
+  mutate(Y.S_MU_BINNED=cut(col_data, breaks=bins)) %>%
+  mutate_if(is.factor, as.numeric)
+```
+
+
+```{r}
+# Select binned sub-features along with ORIGIN_CALL IDs
+origin_bins = df_origin %>%
+  select('ORIGIN_CALL', 'DUR_MU_BINNED', 'X.S_MU_BINNED','Y.S_MU_BINNED')
+origin_bins <- origin_bins %>%
+  mutate(across(c('DUR_MU_BINNED', 'X.S_MU_BINNED','Y.S_MU_BINNED'), ~.-1))
+origin_bins <- origin_bins %>%
+  mutate(BIN = DUR_MU_BINNED*100 + X.S_MU_BINNED*10 + Y.S_MU_BINNED + 64)
+origin_bins[1,'BIN']=0
+```
+
+
+
+```{r}
+# Binning START_X
+n = 100
+bins = gen_norm.bins(start_x.mean, start_x.sd, x.min, x.max, n)
+data <- data %>%
+  mutate(START_X_BINNED=cut(START_X, breaks=bins)) %>%
+  mutate_if(is.factor, as.numeric)
+
+# Binning START_Y
+bins = gen_norm.bins(start_y.mean, start_y.sd, y.min, y.max, n)
+data <- data %>%
+  mutate(START_Y_BINNED=cut(START_Y, breaks=bins)) %>%
+  mutate_if(is.factor, as.numeric)
+```
+
+```{r}
+# Convert CALL_TYPE to numeric values
+data <- data %>%
+  mutate(CALL_TYPE=as.numeric(as.factor(CALL_TYPE)))
+```
+
+```{r}
+# Collect data for export
+to_export <- origin_bins %>%
+  select(ORIGIN_CALL, BIN)
+
+# Write our data to CSV
+write.csv(to_export, "C:\\Users\\cohenrique\\Desktop\\origin_mapping.csv", row.names=FALSE)
+```
+
+
+```{r}
+# Collect data for export
+to_export <- data %>%
+  select(CALL_TYPE, ORIGIN, TAXI_ID, MON, HR, WK, TRIP_DURATION)
+
+# Write our data to CSV
+write.csv(to_export, "C:\\Users\\cohenrique\\Desktop\\training_data.csv", row.names=FALSE)
+```
+
+```{r}
+sum = 0
+for (i in 1:(ncol(to_export)-1)){
+  
+  print(nrow(unique(to_export[,i])))
+}
+```
+
+
+
+we want ideally 1000 origin_call profiles max
+We will find all our means for each origin_call
+then find min/max of the means, to adjust above bin boundary
+then find a suitable low digit bin count
+Then find a low digit sd
+consider binned average start location (maybe end location too)
+after the above, all that's left is binning start and end x/y
+THEN create model, upload report
+
+future:
+pull more data out of polystrings
+consider experimenting with a LSTM model for path memorization with prediction for initial start / end
+model 1 predicts start/end feeds into LSTM which predicts duration?
+
+```{r}
+# generate data for analysis on origin_call feature
+dur_sd = c()
+dur_avg = c()
+dur_med = c()
+x.s_avg = c()
+x.s_med = c()
+y.s_avg = c()
+y.s_med = c()
+hr_avg = c()
+hr_med = c()
+
+unique_orgn <- unique(data$ORIGIN_CALL)
+for (i in unique_orgn){
+  frame <- data %>%
+    filter(ORIGIN_CALL==i)
+    dur_avg <- append(dur_avg, mean(log(frame$TRIP_DURATION)))
+    dur_sd <- append(dur_sd, sd(log(frame$TRIP_DURATION)))
+    dur_med <- append(dur_med, median(log(frame$TRIP_DURATION)))
+    x.s_avg <- append(x.s_avg, mean(frame$START_X))
+    x.s_med <- append(x.s_med, median(frame$START_X))
+    y.s_avg <- append(y.s_avg, mean(frame$START_Y))
+    y.s_med <- append(y.s_med, median(frame$START_Y))
+    hr_avg <- append(hr_avg, mean(frame$HR))
+    hr_med <- append(hr_med, median(frame$HR))
+}
+df_origin = data.frame('ORIGIN_CALL'=unique_orgn, 'duration sd'=dur_sd, 'duration mean'=dur_avg, 'duration_median'=dur_med,
+                       'duration diff'=(dur_avg-dur_med), 'start x mean'=x.s_avg, 'start x median'=x.s_med,
+                       'start x diff'=(x.s_avg-x.s_med), 'start y mean'=y.s_avg, 'start y median'=y.s_med,
+                       'start y diff'=(y.s_avg-y.s_med), 'hr mean'=hr_avg, 'hr med'=hr_med, 'hr diff'=(hr_avg-hr_med))
+
+df_origin <- df_origin[order(df_origin$ORIGIN_CALL),]
+row.names(df_origin) <- NULL
+write.csv(df_origin, "C:\\Users\\cohenrique\\Desktop\\data.csv", row.names=FALSE)
+
+```
+
+
+```{r}
+# histogram of start x/y positions
+data[data$ORIGIN_CALL>0,] %>%
+  ggplot(aes(x=ORIGIN_CALL, fill="red", color="red")) + 
+           geom_histogram(alpha=0.5, bins=100, show.legend = FALSE)
+```
+
